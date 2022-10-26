@@ -4,8 +4,20 @@ Node.js based chromium devtools for converting SVG files to Skia Vector Icon fil
 
 ## Installation
 
+Install globally to use `svg2icon` CLI command in your terminal.
+
 ```sh
 $ [sudo] npm install -g raybrowser/chromium-icon-tools
+$ svg2icon -i file.svg -o file.icon
+```
+
+Install locally to import and use `svg2icon` and `icon2svg` functions within your code:
+
+```sh
+$ npm install raybrowser/chromium-icon-tools
+```
+```js
+import { svg2icon, icon2svg } from 'chromium-icon-tools';
 ```
 
 ## svg2icon CLI Usage
@@ -94,20 +106,10 @@ Arguments:
 
   Read from stdin and output to /tmp/a.icon
 
-- With strings
-
-  ```sh
-  $ svg2icon -s "<svg..." >/tmp/a.icon
-  ```
-
-  ```sh
-  $ svg2icon -s "<svg..." -o /tmp/a.icon
-  ```
-
 - With all of above
 
   ```sh
-  $ svg2icon -s "<svg..." -o /tmp/a.icon -i a.svg -o aa.icon \
+  $ svg2icon -i a.svg -o aa.icon \
    -i - -o /tmp/stdin.icon \
    -i /tmp/myfolder -o /tmp/yourfolder \
    -o /tmp/outputfoder some.svg /tmp/test.svg
@@ -115,7 +117,6 @@ Arguments:
 
   ```
   Converts:
-    convert string to /tmp/a.icon;
     convert a.svg to aa.icon;
     read from stdin and output to /tmp/stdin.icon;
     convert all svg files in /tmp/myfolder and output icon files to /tmp/yourfolder;
@@ -126,11 +127,9 @@ Arguments:
 
   ```sh
   $ svg2icon -c -o - a.svg
-  ......
   NEW_PATH,
   PATH_COLOR_ARGB, 0xFF, 0xFF, 0xAA, 0x00,
   CIRCLE, 11.5, 11.5, 1.5
-  ......
   ```
 
 ## Built on top of these tools

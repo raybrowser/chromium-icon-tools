@@ -20,7 +20,7 @@ export default [
       {
         file: './bin/svg2icon-cli.cjs',
         format: 'cjs',
-        banner: '#!/usr/bin/env node',
+        banner: '#!/usr/bin/env node \n',
       },
     ],
     plugins: [typescript(), externals()],

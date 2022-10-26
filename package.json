@@ -1,6 +1,6 @@
 {
   "name": "chromium-icon-tools",
-  "version": "3.0.1",
+  "version": "3.0.2",
   "description": "Node.js based chromium devtools for converting SVG files to Skia Vector Icon files and vice versa.",
   "keywords": [
     "chromium",

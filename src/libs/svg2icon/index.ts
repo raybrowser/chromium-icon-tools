@@ -45,8 +45,8 @@ export function svg2icon(svgString: string, options: Svg2IconOptions = {}) {
   let width = 0;
   let height = 0;
   if (typeof svgNode.properties?.viewBox === 'string') {
-    width = parseInt(svgNode.properties.viewBox.split(' ')[3]) || 0;
-    height = parseInt(svgNode.properties.viewBox.split(' ')[4]) || 0;
+    width = parseInt(svgNode.properties.viewBox.split(' ')[2]) || 0;
+    height = parseInt(svgNode.properties.viewBox.split(' ')[3]) || 0;
   } else {
     width = parseInt(`${svgNode.properties?.width}`) || 0;
     height = parseInt(`${svgNode.properties?.height}`) || 0;

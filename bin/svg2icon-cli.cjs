@@ -1,4 +1,5 @@
-#!/usr/bin/env node
+#!/usr/bin/env node 
+
 'use strict';
 
 var FS = require('node:fs');
@@ -18,8 +19,8 @@ function svg2icon(svgString, options = {}) {
     let width = 0;
     let height = 0;
     if (typeof ((_a = svgNode.properties) === null || _a === void 0 ? void 0 : _a.viewBox) === 'string') {
-        width = parseInt(svgNode.properties.viewBox.split(' ')[3]) || 0;
-        height = parseInt(svgNode.properties.viewBox.split(' ')[4]) || 0;
+        width = parseInt(svgNode.properties.viewBox.split(' ')[2]) || 0;
+        height = parseInt(svgNode.properties.viewBox.split(' ')[3]) || 0;
     }
     else {
         width = parseInt(`${(_b = svgNode.properties) === null || _b === void 0 ? void 0 : _b.width}`) || 0;

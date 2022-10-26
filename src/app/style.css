@@ -1,0 +1,32 @@
+body, html{
+  font-family: sans-serif;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+}
+
+nav {
+  display: flex;
+  margin-top: 5px;
+  margin-bottom: 5px;
+}
+
+.nav-element {
+  margin: auto;
+  margin-left: 5px;
+  margin-right: 5px;
+}
+
+.preview {
+  border: 1px solid rgba(0, 0, 0, 0.1); 
+}
+
+textarea {
+  margin: 5px;
+  margin-top: 0;
+  height: 100%;
+  resize: none;
+}

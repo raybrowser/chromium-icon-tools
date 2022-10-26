@@ -1,0 +1,48 @@
+{
+  "name": "chromium-icon-tools",
+  "version": "3.0.0",
+  "description": "Node.js based chromium devtools for converting SVG files to Skia Vector Icon files and vice versa.",
+  "keywords": [
+    "chromium",
+    "svg",
+    "icon",
+    "skia",
+    "vector"
+  ],
+  "license": "MIT",
+  "author": "Ray Systems Ltd.",
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:/raybrowser/chromium-icon-tools.git"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "svg2icon": "./dist/svg2icon-cli.js"
+  },
+  "targets": {
+    "main": false
+  },
+  "dependencies": {
+    "color-rgba": "2.4.0",
+    "svg-parser": "2.0.4"
+  },
+  "devDependencies": {
+    "@rollup/plugin-typescript": "9.0.2",
+    "@types/color-rgba": "2.1.0",
+    "@types/node": "16.11.7",
+    "@types/svg-parser": "2.0.3",
+    "parcel": "2.7.0",
+    "rimraf": "3.0.2",
+    "rollup": "3.2.3",
+    "rollup-plugin-node-externals": "5.0.1",
+    "typescript": "4.8.4"
+  },
+  "scripts": {
+    "build": "npm run clean && npm run bundle && npm run parcel-build",
+    "parcel-dev": "./node_modules/.bin/parcel src/app/index.html -p 3000 --dist-dir parcel-dist --no-autoinstall --open",
+    "parcel-build": "./node_modules/.bin/parcel build src/app/index.html --dist-dir dist/app",
+    "clean": "./node_modules/.bin/rimraf dist",
+    "bundle": "./node_modules/.bin/rollup -c"
+  }
+}

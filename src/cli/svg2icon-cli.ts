@@ -1,5 +1,3 @@
-#!/usr/bin/env nodesvg2icon
-
 import FS from 'fs';
 import PATH from 'path';
 import { svg2icon } from '../libs/svg2icon';

@@ -1,12 +1,15 @@
-import FS from 'node:fs';
-import PATH from 'node:path';
-import { parse } from 'svg-parser';
-import rgba from 'color-rgba';
+#!/usr/bin/env node
+'use strict';
+
+var FS = require('node:fs');
+var PATH = require('node:path');
+var svgParser = require('svg-parser');
+var rgba = require('color-rgba');
 
 function svg2icon(svgString, options = {}) {
     var _a, _b, _c;
     const { scaleX = 1, scaleY = 1, translateX = 0, translateY = 0, preserveFill = true } = options;
-    const svgRoot = parse(svgString);
+    const svgRoot = svgParser.parse(svgString);
     const svgNode = svgRoot.children[0];
     if (typeof svgNode === 'string' || svgNode.type === 'text') {
         throw new Error('Detected a text string within the SVG, which is not supported.');

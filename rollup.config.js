@@ -1,4 +1,5 @@
 import typescript from '@rollup/plugin-typescript';
+import json from '@rollup/plugin-json';
 import externals from 'rollup-plugin-node-externals';
 
 export default [
@@ -11,7 +12,7 @@ export default [
         format: 'es',
       },
     ],
-    plugins: [typescript(), externals()],
+    plugins: [typescript(), json(), externals()],
   },
   // Build svg2icon-cli.ts
   {
@@ -23,6 +24,6 @@ export default [
         banner: '#!/usr/bin/env node \n',
       },
     ],
-    plugins: [typescript(), externals()],
+    plugins: [typescript(), json(), externals()],
   },
 ];

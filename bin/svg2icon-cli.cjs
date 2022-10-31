@@ -5,11 +5,11 @@
 var FS = require('node:fs');
 var PATH = require('node:path');
 var svgParser = require('svg-parser');
-var rgba = require('color-rgba');
+var colorString = require('color-string');
 
 function svg2icon(svgString, options = {}) {
     var _a, _b, _c;
-    const { scaleX = 1, scaleY = 1, translateX = 0, translateY = 0, preserveFill = true } = options;
+    const { scaleX = 1, scaleY = 1, translateX = 0, translateY = 0, preserveColors = true } = options;
     const svgRoot = svgParser.parse(svgString);
     const svgNode = svgRoot.children[0];
     if (typeof svgNode === 'string' || svgNode.type === 'text') {
@@ -32,12 +32,9 @@ function svg2icon(svgString, options = {}) {
     if (width !== height) {
         throw new Error('<svg> width and height must be equal in order to produce accurate conversion');
     }
-    if (width !== 48) {
-        output += 'CANVAS_DIMENSIONS, ' + width + ',\n';
-    }
-    output += handleNode(svgNode, scaleX, scaleY, translateX, translateY, preserveFill);
-    output = output.slice(0, -2);
-    output += '\n';
+    output += 'CANVAS_DIMENSIONS, ' + width + ',\n';
+    output += handleNode(svgNode, scaleX, scaleY, translateX, translateY, preserveColors);
+    output = `${output.slice(0, -2)}\n`;
     return output;
 }
 function toCommand(letter) {
@@ -121,51 +118,115 @@ function num2str(val) {
 function roundToHundredths(x) {
     return Math.floor(x * 100 + 0.5) / 100;
 }
-function componentToHex(c) {
-    const hex = c.toString(16);
-    return (hex.length == 1 ? '0' + hex : hex).toUpperCase();
-}
-function parsePathColorCommand(svgElement) {
-    var _a;
-    const fill = (_a = svgElement.properties) === null || _a === void 0 ? void 0 : _a.fill;
-    if (typeof fill !== 'string') {
-        return '';
+function parseColorData(svgColorString, inheritedColorData = undefined, preserveColors = true) {
+    if (svgColorString === 'none' || svgColorString === 'currentColor') {
+        return svgColorString;
     }
-    const color = rgba(fill);
-    if (color) {
-        const [r, g, b, a] = color;
-        return `PATH_COLOR_ARGB, 0x${componentToHex((a * 255) | (1 << 8))}, 0x${componentToHex(r)}, 0x${componentToHex(g)}, 0x${componentToHex(b)},\n`;
+    if (typeof svgColorString === 'string') {
+        const color = colorString.get.rgb(svgColorString);
+        if (color) {
+            if (preserveColors) {
+                return color;
+            }
+        }
+        else {
+            throw new Error(`Invalid color value: ${svgColorString}`);
+        }
+    }
+    else if (svgColorString !== undefined) {
+        throw new Error(`Invalid color value: ${svgColorString}`);
+    }
+    return inheritedColorData || undefined;
+}
+function createColorCommand(colorData) {
+    if (colorData && colorData !== 'none' && colorData !== 'currentColor') {
+        let hexColor = colorString.to.hex(colorData);
+        if (hexColor.length === 7) {
+            hexColor += 'FF';
+        }
+        const [_o, r1, r2, g1, g2, b1, b2, a1, a2] = hexColor;
+        return `PATH_COLOR_ARGB, 0x${a1 + a2}, 0x${r1 + r2}, 0x${g1 + g2}, 0x${b1 + b2},\n`;
     }
     return '';
 }
-function handleNode(svgNode, scaleX = 1, scaleY = 1, translateX = 0, translateY = 0, preserveFill = true, inheritedFillCommand = '') {
-    let output = '';
+function parseStrokeData(svgElement, inheritedStrokeData = undefined, preserveColors = true) {
+    const { properties } = svgElement;
+    if (!properties) {
+        return inheritedStrokeData;
+    }
+    const color = parseColorData(properties.stroke, inheritedStrokeData === null || inheritedStrokeData === void 0 ? void 0 : inheritedStrokeData.color, preserveColors);
+    let width = inheritedStrokeData === null || inheritedStrokeData === void 0 ? void 0 : inheritedStrokeData.width;
+    const strokeWidth = properties['stroke-width'];
+    if (typeof strokeWidth === 'string') {
+        if (strokeWidth) {
+            if (strokeWidth.includes('%')) {
+                throw new Error('Percentage values are not supported for stroke-width');
+            }
+            width = parseFloat(strokeWidth);
+        }
+    }
+    else if (typeof strokeWidth === 'number') {
+        width = strokeWidth;
+    }
+    if (width !== width || (typeof width === 'number' && width < 0)) {
+        throw new Error(`Invalid stroke-width value: ${width}`);
+    }
+    let linecap = inheritedStrokeData === null || inheritedStrokeData === void 0 ? void 0 : inheritedStrokeData.linecap;
+    const strokeLinecap = properties['stroke-linecap'];
+    if (strokeLinecap === 'round' || strokeLinecap === 'square') {
+        linecap = strokeLinecap;
+    }
+    else if (strokeLinecap) {
+        throw new Error(`Invalid stroke-linecap value: ${strokeLinecap}`);
+    }
+    return {
+        color,
+        width,
+        linecap,
+    };
+}
+function createStrokeCommand(svgNode, strokeData) {
+    let strokeOutput = '';
+    strokeOutput += createColorCommand(strokeData.color);
+    const { width = 1 } = strokeData;
+    strokeOutput += `STROKE, ${num2str(width)},\n`;
+    if (svgNode.tagName === 'path' || svgNode.tagName === 'line') {
+        if (!strokeData.linecap) {
+            throw new Error('You must specify stroke-linecap to be either "round" or "square" for paths if you use stroke');
+        }
+        if (strokeData.linecap === 'square') {
+            strokeOutput += `CAP_SQUARE,\n`;
+        }
+    }
+    return strokeOutput;
+}
+function handleNode(svgNode, scaleX = 1, scaleY = 1, translateX = 0, translateY = 0, preserveColors = true, inheritedFillColorData = undefined, inheritedStrokeData = undefined) {
+    let nodeOutput = '';
     svgNode.children.forEach((svgChildNode) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _p, _q, _r, _s, _t, _u, _v, _w;
         if (typeof svgChildNode === 'string' || svgChildNode.type === 'text') {
             throw new Error('Detected a text string within the SVG, which is not supported.');
         }
-        const fillCommand = preserveFill
-            ? parsePathColorCommand(svgChildNode) || inheritedFillCommand
-            : '';
+        let pathOutput = '';
+        const pathFillData = parseColorData((_a = svgChildNode.properties) === null || _a === void 0 ? void 0 : _a.fill, inheritedFillColorData, preserveColors);
+        const pathStrokeData = parseStrokeData(svgChildNode, inheritedStrokeData, preserveColors);
         switch (svgChildNode.tagName) {
             case 'g': {
-                if ((_a = svgChildNode.properties) === null || _a === void 0 ? void 0 : _a.transform) {
+                if ((_b = svgChildNode.properties) === null || _b === void 0 ? void 0 : _b.transform) {
                     throw new Error('<g> with a transform not handled');
                 }
                 else {
-                    output += handleNode(svgChildNode, scaleX, scaleY, translateX, translateY, preserveFill, fillCommand);
+                    nodeOutput += handleNode(svgChildNode, scaleX, scaleY, translateX, translateY, preserveColors, pathFillData, pathStrokeData);
                 }
                 break;
             }
             case 'path': {
-                if (((_b = svgChildNode.properties) === null || _b === void 0 ? void 0 : _b.fill) === 'none') {
-                    break;
-                }
                 const commands = [];
+                let pathIsClosed = true;
                 let path = typeof ((_c = svgChildNode.properties) === null || _c === void 0 ? void 0 : _c.d) === 'string' ? (_d = svgChildNode.properties) === null || _d === void 0 ? void 0 : _d.d : '';
-                path = path.replace(/,/g, ' ').trim();
+                path = path.replaceAll(',', ' ').trim();
                 if (path.slice(-1).toLowerCase() !== 'z') {
+                    pathIsClosed = false;
                     path += 'z';
                 }
                 while (path) {
@@ -255,77 +316,163 @@ function handleNode(svgNode, scaleX = 1, scaleY = 1, translateX = 0, translateY 
                     }
                     path = path.trim();
                 }
-                output += 'NEW_PATH,\n';
-                output += fillCommand;
+                if (!pathIsClosed) {
+                    commands.pop();
+                }
                 commands.forEach((command) => {
-                    output += `${toCommand(command.command)}`;
-                    for (let key in command.args) {
-                        output += `, ${num2str(command.args[key])}`;
-                    }
-                    output += ',\n';
+                    pathOutput += `${toCommand(command.command)}`;
+                    command.args.forEach((arg) => (pathOutput += `, ${num2str(arg)}`));
+                    pathOutput += ',\n';
                 });
                 break;
             }
             case 'circle': {
-                if (((_e = svgChildNode.properties) === null || _e === void 0 ? void 0 : _e.fill) === 'none') {
-                    break;
-                }
-                output += 'NEW_PATH,\n';
-                output += fillCommand;
-                let cx = toFloat((_f = svgChildNode.properties) === null || _f === void 0 ? void 0 : _f.cx);
+                let cx = toFloat((_e = svgChildNode.properties) === null || _e === void 0 ? void 0 : _e.cx);
                 cx *= scaleX;
                 cx += translateX;
-                let cy = toFloat((_g = svgChildNode.properties) === null || _g === void 0 ? void 0 : _g.cy);
+                let cy = toFloat((_f = svgChildNode.properties) === null || _f === void 0 ? void 0 : _f.cy);
                 cy *= scaleY;
                 cy += translateY;
-                const rad = toFloat((_h = svgChildNode.properties) === null || _h === void 0 ? void 0 : _h.r);
-                output = `CIRCLE, ${num2str(cx)}, ${num2str(cy)}, ${num2str(rad)},\n`;
+                const rad = toFloat((_g = svgChildNode.properties) === null || _g === void 0 ? void 0 : _g.r);
+                pathOutput += `CIRCLE, ${num2str(cx)}, ${num2str(cy)}, ${num2str(rad)},\n`;
                 break;
             }
             case 'rect': {
-                if (((_j = svgChildNode.properties) === null || _j === void 0 ? void 0 : _j.fill) === 'none') {
-                    break;
-                }
-                output += 'NEW_PATH,\n';
-                output += fillCommand;
-                let x = toFloat((_k = svgChildNode.properties) === null || _k === void 0 ? void 0 : _k.x);
+                let x = toFloat((_h = svgChildNode.properties) === null || _h === void 0 ? void 0 : _h.x);
                 x *= scaleX;
                 x += translateX;
-                let y = toFloat((_l = svgChildNode.properties) === null || _l === void 0 ? void 0 : _l.y);
+                let y = toFloat((_j = svgChildNode.properties) === null || _j === void 0 ? void 0 : _j.y);
                 y *= scaleY;
                 y += translateY;
-                const width = toFloat((_m = svgChildNode.properties) === null || _m === void 0 ? void 0 : _m.width);
-                const height = toFloat((_o = svgChildNode.properties) === null || _o === void 0 ? void 0 : _o.width);
-                const rx = toFloat((_p = svgChildNode.properties) === null || _p === void 0 ? void 0 : _p.rx);
-                output = `ROUND_RECT, ${num2str(x)}, ${num2str(y)}, ${num2str(width)}, ${num2str(height)}, ${num2str(rx)},\n`;
+                const width = toFloat((_k = svgChildNode.properties) === null || _k === void 0 ? void 0 : _k.width);
+                const height = toFloat((_l = svgChildNode.properties) === null || _l === void 0 ? void 0 : _l.width);
+                const rx = toFloat((_m = svgChildNode.properties) === null || _m === void 0 ? void 0 : _m.rx);
+                pathOutput += `ROUND_RECT, ${num2str(x)}, ${num2str(y)}, ${num2str(width)}, ${num2str(height)}, ${num2str(rx)},\n`;
                 break;
             }
             case 'ellipse': {
-                if (((_q = svgChildNode.properties) === null || _q === void 0 ? void 0 : _q.fill) === 'none') {
-                    break;
-                }
-                output += 'NEW_PATH,\n';
-                output += fillCommand;
-                let cx = toFloat((_r = svgChildNode.properties) === null || _r === void 0 ? void 0 : _r.cx);
+                let cx = toFloat((_p = svgChildNode.properties) === null || _p === void 0 ? void 0 : _p.cx);
                 cx *= scaleX;
                 cx += translateX;
-                let cy = toFloat((_s = svgChildNode.properties) === null || _s === void 0 ? void 0 : _s.cy);
+                let cy = toFloat((_q = svgChildNode.properties) === null || _q === void 0 ? void 0 : _q.cy);
                 cy *= scaleY;
                 cy += translateY;
-                const rx = toFloat((_t = svgChildNode.properties) === null || _t === void 0 ? void 0 : _t.rx);
-                const ry = toFloat((_u = svgChildNode.properties) === null || _u === void 0 ? void 0 : _u.ry);
-                output = `OVAL, ${num2str(cx)}, ${num2str(cy)}, ${num2str(rx)}, ${num2str(ry)},\n`;
+                const rx = toFloat((_r = svgChildNode.properties) === null || _r === void 0 ? void 0 : _r.rx);
+                const ry = toFloat((_s = svgChildNode.properties) === null || _s === void 0 ? void 0 : _s.ry);
+                pathOutput += `OVAL, ${num2str(cx)}, ${num2str(cy)}, ${num2str(rx)}, ${num2str(ry)},\n`;
+                break;
+            }
+            case 'line': {
+                let x1 = toFloat((_t = svgChildNode.properties) === null || _t === void 0 ? void 0 : _t.x1);
+                x1 *= scaleX;
+                x1 += translateX;
+                let y1 = toFloat((_u = svgChildNode.properties) === null || _u === void 0 ? void 0 : _u.y1);
+                y1 *= scaleY;
+                y1 += translateY;
+                let x2 = toFloat((_v = svgChildNode.properties) === null || _v === void 0 ? void 0 : _v.x2);
+                x2 *= scaleX;
+                x2 += translateX;
+                let y2 = toFloat((_w = svgChildNode.properties) === null || _w === void 0 ? void 0 : _w.y2);
+                y2 *= scaleY;
+                y2 += translateY;
+                pathOutput += `MOVE_TO, ${num2str(x1)}, ${num2str(y1)},\n`;
+                pathOutput += `LINE_TO, ${num2str(x2)}, ${num2str(y2)},\n`;
                 break;
             }
             default: {
                 throw new Error(`Unsupported svg element: <${svgChildNode.tagName}>`);
             }
         }
+        if (pathOutput) {
+            if (pathFillData !== 'none' && svgChildNode.tagName !== 'line') {
+                nodeOutput += 'NEW_PATH,\n';
+                nodeOutput += createColorCommand(pathFillData);
+                nodeOutput += pathOutput;
+            }
+            if (pathStrokeData &&
+                pathStrokeData.color &&
+                pathStrokeData.color !== 'none' &&
+                pathStrokeData.width !== 0) {
+                nodeOutput += 'NEW_PATH,\n';
+                nodeOutput += createStrokeCommand(svgChildNode, pathStrokeData);
+                nodeOutput += pathOutput;
+            }
+        }
     });
-    return output;
+    return nodeOutput;
 }
 
-const VERSION = '3.0.0';
+var name = "chromium-icon-tools";
+var version = "3.0.3";
+var description = "Node.js based chromium devtools for converting SVG files to Skia Vector Icon files and vice versa.";
+var keywords = [
+	"chromium",
+	"svg",
+	"icon",
+	"skia",
+	"vector"
+];
+var license = "MIT";
+var author = "Ray Systems Ltd.";
+var repository = {
+	type: "git",
+	url: "https://github.com/raybrowser/chromium-icon-tools.git"
+};
+var type = "module";
+var main = "./dist/index.js";
+var bin = {
+	svg2icon: "./bin/svg2icon-cli.cjs"
+};
+var files = [
+	"bin",
+	"src",
+	"dist",
+	"LICENSE.md",
+	"README.md"
+];
+var targets = {
+	main: false
+};
+var dependencies = {
+	"color-string": "1.9.1",
+	"svg-parser": "2.0.4"
+};
+var devDependencies = {
+	"@rollup/plugin-json": "5.0.1",
+	"@rollup/plugin-typescript": "9.0.2",
+	"@types/color-string": "1.5.2",
+	"@types/node": "18.11.8",
+	"@types/svg-parser": "2.0.3",
+	parcel: "2.7.0",
+	rimraf: "3.0.2",
+	rollup: "3.2.3",
+	"rollup-plugin-node-externals": "5.0.1",
+	typescript: "4.8.4"
+};
+var scripts = {
+	bundle: "rimraf dist && rimraf bin && npm run rollup-build && npm run parcel-build",
+	"parcel-dev": "parcel src/app/index.html -p 3000 --dist-dir parcel-dist --no-autoinstall --open",
+	"parcel-build": "parcel build src/app/index.html --dist-dir dist/app",
+	"rollup-build": "rollup -c"
+};
+var pkg = {
+	name: name,
+	version: version,
+	description: description,
+	keywords: keywords,
+	license: license,
+	author: author,
+	repository: repository,
+	type: type,
+	main: main,
+	bin: bin,
+	files: files,
+	targets: targets,
+	dependencies: dependencies,
+	devDependencies: devDependencies,
+	scripts: scripts
+};
+
 function error(msg) {
     console.error(`Error: ${msg}`);
 }
@@ -351,7 +498,7 @@ function parseArgs() {
         trailings: [],
         outputs: [],
         quiet: false,
-        preserveFill: false,
+        preserveColors: false,
         stdInData: '',
     };
     const inputPrefix = '--input';
@@ -395,7 +542,7 @@ function parseArgs() {
             result.quiet = true;
         }
         else if (arg == '-c') {
-            result.preserveFill = true;
+            result.preserveColors = true;
         }
         else {
             for (; i < process.argv.length; i++) {
@@ -476,7 +623,7 @@ function mkdirP(parentDir, childDir) {
     return true;
 }
 function svg2IconWrite(args, source, target, data) {
-    const iconData = svg2icon(data, { preserveFill: !!args.preserveFill });
+    const iconData = svg2icon(data, { preserveColors: !!args.preserveColors });
     if (target == '-') {
         console.log(iconData);
         return;
@@ -606,7 +753,7 @@ function run() {
         helpExit();
     }
     if (args.version) {
-        console.log(VERSION);
+        console.log(pkg.version);
         process.exit(0);
     }
     if (args.inputs.length == 0 && args.trailings.length == 0) {

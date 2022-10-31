@@ -1,9 +1,7 @@
 import FS from 'fs';
 import PATH from 'path';
 import { svg2icon } from '../libs/svg2icon';
-
-// TODO: Import from package.json.
-const VERSION = '3.0.0';
+import pkg from '../../package.json' assert { type: 'json' };
 
 interface ParsedArgs {
   help: boolean;
@@ -12,7 +10,7 @@ interface ParsedArgs {
   trailings: { type: string; value: string }[];
   outputs: { type: string; value: string; cmdline: string }[];
   quiet: boolean;
-  preserveFill: boolean;
+  preserveColors: boolean;
   stdInData: string;
 }
 
@@ -44,7 +42,7 @@ function parseArgs() {
     trailings: [],
     outputs: [],
     quiet: false,
-    preserveFill: false,
+    preserveColors: false,
     stdInData: '',
   };
   const inputPrefix = '--input';
@@ -84,7 +82,7 @@ function parseArgs() {
     } else if (arg == '-q' || arg == '--quiet') {
       result.quiet = true;
     } else if (arg == '-c') {
-      result.preserveFill = true;
+      result.preserveColors = true;
     } else {
       // take all trailing arguments
       for (; i < process.argv.length; i++) {
@@ -169,7 +167,7 @@ function mkdirP(parentDir: string, childDir: string) {
 }
 
 function svg2IconWrite(args: ParsedArgs, source: string, target: string, data: string) {
-  const iconData = svg2icon(data, { preserveFill: !!args.preserveFill });
+  const iconData = svg2icon(data, { preserveColors: !!args.preserveColors });
   if (target == '-') {
     console.log(iconData);
     return;
@@ -323,7 +321,7 @@ function run() {
   }
 
   if (args.version) {
-    console.log(VERSION);
+    console.log(pkg.version);
     process.exit(0);
   }
 

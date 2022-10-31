@@ -14,21 +14,28 @@
 
 // Skia docs at:
 // https://source.chromium.org/chromium/chromium/src/+/main:ui/gfx/vector_icon_types.h;l=6?q=vector_icon_types&sq=&ss=chromium
-// TODO: Implement STROKE, CAP_SQUARE, DISABLE_AA
+// TODO: Implement polyline and polygone shapes. Support DISABLE_AA prop.
 
 import { parse, ElementNode } from 'svg-parser';
-import rgba from 'color-rgba';
+import colorString from 'color-string';
 
 type Svg2IconOptions = {
   scaleX?: number;
   scaleY?: number;
   translateX?: number;
   translateY?: number;
-  preserveFill?: boolean;
+  preserveColors?: boolean;
+};
+type RGBAData = [number, number, number, number];
+type SVGColorData = RGBAData | 'none' | 'currentColor' | undefined;
+type StrokeData = {
+  color: SVGColorData;
+  width: number | undefined;
+  linecap: 'round' | 'square' | undefined;
 };
 
 export function svg2icon(svgString: string, options: Svg2IconOptions = {}) {
-  const { scaleX = 1, scaleY = 1, translateX = 0, translateY = 0, preserveFill = true } = options;
+  const { scaleX = 1, scaleY = 1, translateX = 0, translateY = 0, preserveColors = true } = options;
 
   // Generate abstract syntax tree from the svg string.
   const svgRoot = parse(svgString);
@@ -62,19 +69,14 @@ export function svg2icon(svgString: string, options: Svg2IconOptions = {}) {
     throw new Error('<svg> width and height must be equal in order to produce accurate conversion');
   }
 
-  // We only need to define the CANVAS_DIMENSIONS if it is not 48.
-  if (width !== 48) {
-    output += 'CANVAS_DIMENSIONS, ' + width + ',\n';
-  }
+  // Set canvas dimensions.
+  output += 'CANVAS_DIMENSIONS, ' + width + ',\n';
 
   // Recurse through the svg node.
-  output += handleNode(svgNode, scaleX, scaleY, translateX, translateY, preserveFill);
+  output += handleNode(svgNode, scaleX, scaleY, translateX, translateY, preserveColors);
 
-  // Truncate final comma and newline.
-  output = output.slice(0, -2);
-
-  // Add new line.
-  output += '\n';
+  // Truncate final comma and ensure newline at the end.
+  output = `${output.slice(0, -2)}\n`;
 
   return output;
 }
@@ -170,26 +172,129 @@ function roundToHundredths(x: number) {
   return Math.floor(x * 100 + 0.5) / 100;
 }
 
-function componentToHex(c: number) {
-  const hex = c.toString(16);
-  return (hex.length == 1 ? '0' + hex : hex).toUpperCase();
+function parseColorData(
+  svgColorString: any,
+  inheritedColorData: SVGColorData = undefined,
+  preserveColors = true
+): SVGColorData {
+  if (svgColorString === 'none' || svgColorString === 'currentColor') {
+    return svgColorString;
+  }
+
+  if (typeof svgColorString === 'string') {
+    const color = colorString.get.rgb(svgColorString);
+    if (color) {
+      if (preserveColors) {
+        return color;
+      }
+    } else {
+      throw new Error(`Invalid color value: ${svgColorString}`);
+    }
+  } else if (svgColorString !== undefined) {
+    throw new Error(`Invalid color value: ${svgColorString}`);
+  }
+
+  return inheritedColorData || undefined;
 }
 
-function parsePathColorCommand(svgElement: ElementNode) {
-  const fill = svgElement.properties?.fill;
-  if (typeof fill !== 'string') {
-    return '';
+function createColorCommand(colorData: SVGColorData) {
+  if (colorData && colorData !== 'none' && colorData !== 'currentColor') {
+    let hexColor = colorString.to.hex(colorData);
+    // If hex color is missing the alpha value assume it's opaque.
+    // colorString library actually outputs the alpha into the hex value only
+    // if it's not opaque.
+    if (hexColor.length === 7) {
+      hexColor += 'FF';
+    }
+    const [_o, r1, r2, g1, g2, b1, b2, a1, a2] = hexColor;
+    return `PATH_COLOR_ARGB, 0x${a1 + a2}, 0x${r1 + r2}, 0x${g1 + g2}, 0x${b1 + b2},\n`;
   }
-
-  const color = rgba(fill);
-  if (color) {
-    const [r, g, b, a] = color;
-    return `PATH_COLOR_ARGB, 0x${componentToHex((a * 255) | (1 << 8))}, 0x${componentToHex(
-      r
-    )}, 0x${componentToHex(g)}, 0x${componentToHex(b)},\n`;
-  }
-
   return '';
+}
+
+function parseStrokeData(
+  svgElement: ElementNode,
+  inheritedStrokeData: StrokeData | undefined = undefined,
+  preserveColors = true
+): StrokeData | undefined {
+  const { properties } = svgElement;
+
+  if (!properties) {
+    return inheritedStrokeData;
+  }
+
+  //
+  // Parse stroke (color).
+  //
+
+  const color = parseColorData(properties.stroke, inheritedStrokeData?.color, preserveColors);
+
+  //
+  // Parse stroke-width.
+  //
+
+  let width = inheritedStrokeData?.width;
+  const strokeWidth = properties['stroke-width'];
+  if (typeof strokeWidth === 'string') {
+    if (strokeWidth) {
+      if (strokeWidth.includes('%')) {
+        throw new Error('Percentage values are not supported for stroke-width');
+      }
+      width = parseFloat(strokeWidth);
+    }
+  } else if (typeof strokeWidth === 'number') {
+    width = strokeWidth;
+  }
+
+  // Make sure width is not NaN nor a negative number.
+  if (width !== width || (typeof width === 'number' && width < 0)) {
+    throw new Error(`Invalid stroke-width value: ${width}`);
+  }
+
+  //
+  // Parse stroke-linecap.
+  //
+
+  let linecap = inheritedStrokeData?.linecap;
+  const strokeLinecap = properties['stroke-linecap'];
+  if (strokeLinecap === 'round' || strokeLinecap === 'square') {
+    linecap = strokeLinecap;
+  } else if (strokeLinecap) {
+    throw new Error(`Invalid stroke-linecap value: ${strokeLinecap}`);
+  }
+
+  return {
+    color,
+    width,
+    linecap,
+  };
+}
+
+function createStrokeCommand(svgNode: ElementNode, strokeData: StrokeData) {
+  let strokeOutput = '';
+
+  strokeOutput += createColorCommand(strokeData.color);
+
+  const { width = 1 } = strokeData;
+  strokeOutput += `STROKE, ${num2str(width)},\n`;
+
+  // Linecap styling is only relevant for paths and lines.
+  if (svgNode.tagName === 'path' || svgNode.tagName === 'line') {
+    // Let's enforce explicit linecap definition in SVG for paths to make sure
+    // that the rendering matches Skia's rendering. Note that SVG defaults to
+    // "butt" linecap while Skia defaults to "round".
+    if (!strokeData.linecap) {
+      throw new Error(
+        'You must specify stroke-linecap to be either "round" or "square" for paths if you use stroke'
+      );
+    }
+
+    if (strokeData.linecap === 'square') {
+      strokeOutput += `CAP_SQUARE,\n`;
+    }
+  }
+
+  return strokeOutput;
 }
 
 function handleNode(
@@ -198,35 +303,43 @@ function handleNode(
   scaleY = 1,
   translateX = 0,
   translateY = 0,
-  preserveFill = true,
-  inheritedFillCommand = ''
+  preserveColors = true,
+  inheritedFillColorData: SVGColorData = undefined,
+  inheritedStrokeData: StrokeData | undefined = undefined
 ) {
-  let output = '';
+  let nodeOutput = '';
 
   svgNode.children.forEach((svgChildNode) => {
     if (typeof svgChildNode === 'string' || svgChildNode.type === 'text') {
       throw new Error('Detected a text string within the SVG, which is not supported.');
     }
 
-    const fillCommand = preserveFill
-      ? parsePathColorCommand(svgChildNode) || inheritedFillCommand
-      : '';
+    let pathOutput = '';
 
+    const pathFillData = parseColorData(
+      svgChildNode.properties?.fill,
+      inheritedFillColorData,
+      preserveColors
+    );
+
+    const pathStrokeData = parseStrokeData(svgChildNode, inheritedStrokeData, preserveColors);
+
+    // Parse path command.
     switch (svgChildNode.tagName) {
-      // TODO: If g has fill color pass it down to children!
       case 'g': {
         if (svgChildNode.properties?.transform) {
           // TODO: We should be able to handle translates in transforms.
           throw new Error('<g> with a transform not handled');
         } else {
-          output += handleNode(
+          nodeOutput += handleNode(
             svgChildNode,
             scaleX,
             scaleY,
             translateX,
             translateY,
-            preserveFill,
-            fillCommand
+            preserveColors,
+            pathFillData,
+            pathStrokeData
           );
         }
 
@@ -234,17 +347,13 @@ function handleNode(
       }
 
       case 'path': {
-        // Let's ignore all elements with explicit fill="none". Use
-        // fill="currentColor" to render the element without color.
-        if (svgChildNode.properties?.fill === 'none') {
-          break;
-        }
-
         const commands: { command: string; args: number[] }[] = [];
 
+        let pathIsClosed = true;
         let path = typeof svgChildNode.properties?.d === 'string' ? svgChildNode.properties?.d : '';
-        path = path.replace(/,/g, ' ').trim();
+        path = path.replaceAll(',', ' ').trim();
         if (path.slice(-1).toLowerCase() !== 'z') {
+          pathIsClosed = false;
           path += 'z';
         }
 
@@ -366,31 +475,23 @@ function handleNode(
           path = path.trim();
         }
 
-        output += 'NEW_PATH,\n';
-        output += fillCommand;
+        // Remove auto-added closing command if the original path was not
+        // closed. Without this it's impossible to draw lines.
+        if (!pathIsClosed) {
+          commands.pop();
+        }
 
         // Write the path commands to the output.
         commands.forEach((command) => {
-          output += `${toCommand(command.command)}`;
-          for (let key in command.args) {
-            output += `, ${num2str(command.args[key])}`;
-          }
-          output += ',\n';
+          pathOutput += `${toCommand(command.command)}`;
+          command.args.forEach((arg) => (pathOutput += `, ${num2str(arg)}`));
+          pathOutput += ',\n';
         });
 
         break;
       }
 
       case 'circle': {
-        // Let's ignore all elements with explicit fill="none". Use
-        // fill="currentColor" to render the element without color.
-        if (svgChildNode.properties?.fill === 'none') {
-          break;
-        }
-
-        output += 'NEW_PATH,\n';
-        output += fillCommand;
-
         let cx = toFloat(svgChildNode.properties?.cx);
         cx *= scaleX;
         cx += translateX;
@@ -401,21 +502,12 @@ function handleNode(
 
         const rad = toFloat(svgChildNode.properties?.r);
 
-        output = `CIRCLE, ${num2str(cx)}, ${num2str(cy)}, ${num2str(rad)},\n`;
+        pathOutput += `CIRCLE, ${num2str(cx)}, ${num2str(cy)}, ${num2str(rad)},\n`;
 
         break;
       }
 
       case 'rect': {
-        // Let's ignore all elements with explicit fill="none". Use
-        // fill="currentColor" to render the element without color.
-        if (svgChildNode.properties?.fill === 'none') {
-          break;
-        }
-
-        output += 'NEW_PATH,\n';
-        output += fillCommand;
-
         let x = toFloat(svgChildNode.properties?.x);
         x *= scaleX;
         x += translateX;
@@ -428,7 +520,7 @@ function handleNode(
         const height = toFloat(svgChildNode.properties?.width);
         const rx = toFloat(svgChildNode.properties?.rx);
 
-        output = `ROUND_RECT, ${num2str(x)}, ${num2str(y)}, ${num2str(width)}, ${num2str(
+        pathOutput += `ROUND_RECT, ${num2str(x)}, ${num2str(y)}, ${num2str(width)}, ${num2str(
           height
         )}, ${num2str(rx)},\n`;
 
@@ -436,15 +528,6 @@ function handleNode(
       }
 
       case 'ellipse': {
-        // Let's ignore all elements with explicit fill="none". Use
-        // fill="currentColor" to render the element without color.
-        if (svgChildNode.properties?.fill === 'none') {
-          break;
-        }
-
-        output += 'NEW_PATH,\n';
-        output += fillCommand;
-
         let cx = toFloat(svgChildNode.properties?.cx);
         cx *= scaleX;
         cx += translateX;
@@ -456,7 +539,30 @@ function handleNode(
         const rx = toFloat(svgChildNode.properties?.rx);
         const ry = toFloat(svgChildNode.properties?.ry);
 
-        output = `OVAL, ${num2str(cx)}, ${num2str(cy)}, ${num2str(rx)}, ${num2str(ry)},\n`;
+        pathOutput += `OVAL, ${num2str(cx)}, ${num2str(cy)}, ${num2str(rx)}, ${num2str(ry)},\n`;
+
+        break;
+      }
+
+      case 'line': {
+        let x1 = toFloat(svgChildNode.properties?.x1);
+        x1 *= scaleX;
+        x1 += translateX;
+
+        let y1 = toFloat(svgChildNode.properties?.y1);
+        y1 *= scaleY;
+        y1 += translateY;
+
+        let x2 = toFloat(svgChildNode.properties?.x2);
+        x2 *= scaleX;
+        x2 += translateX;
+
+        let y2 = toFloat(svgChildNode.properties?.y2);
+        y2 *= scaleY;
+        y2 += translateY;
+
+        pathOutput += `MOVE_TO, ${num2str(x1)}, ${num2str(y1)},\n`;
+        pathOutput += `LINE_TO, ${num2str(x2)}, ${num2str(y2)},\n`;
 
         break;
       }
@@ -465,7 +571,29 @@ function handleNode(
         throw new Error(`Unsupported svg element: <${svgChildNode.tagName}>`);
       }
     }
+
+    // Build path's fill and stroke commands.
+    if (pathOutput) {
+      // First add fill command if fill is not "none" and tag is not line.
+      if (pathFillData !== 'none' && svgChildNode.tagName !== 'line') {
+        nodeOutput += 'NEW_PATH,\n';
+        nodeOutput += createColorCommand(pathFillData);
+        nodeOutput += pathOutput;
+      }
+
+      // Next add stroke command if stroke is defined.
+      if (
+        pathStrokeData &&
+        pathStrokeData.color &&
+        pathStrokeData.color !== 'none' &&
+        pathStrokeData.width !== 0
+      ) {
+        nodeOutput += 'NEW_PATH,\n';
+        nodeOutput += createStrokeCommand(svgChildNode, pathStrokeData);
+        nodeOutput += pathOutput;
+      }
+    }
   });
 
-  return output;
+  return nodeOutput;
 }

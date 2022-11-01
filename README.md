@@ -50,7 +50,8 @@ const iconString = svg2icon(svgString, { discardColors: true });
   - `<ellipse>` attributes: `cx`, `cy`, `rx`, `ry`.
   - `<line>` attributes: `x1`, `y1`, `x2`, `y2`.
 - Percentage based attribute values are not supported.
-- Chromium's vector icons implementation does not support "butt" styled stroke linecap which is SVGs default linecap type. To work around this issue you must specify stroke-linecap to be either "round" or "square" for `<path>`s and `<line>`s if you define stroke.
+- Chromium's vector icon format needs to kno the _size_ of the canvas where the icon is drawn, but it only allows for a single value so width and height must always be equal in the SVG icon. You can provide the width and height either via `viewBox` attribute or via `width` and `height` attributes in the `<svg>` element. 
+- Chromium's vector icon format does not support "butt" styled stroke linecap which is SVGs default linecap type. To work around this issue you must specify stroke-linecap to be either "round" or "square" for `<path>`s and `<line>`s if you define a stroke.
 - Always outputs `CANVAS_SIZE` even if it could be omitted (at size 48). This is a design choice, not a bug.
 - Always outputs `NEW_PATH` at the start of a new path/shape although it _could_ be omitted for the first path. This is a design choice, not a bug.
 

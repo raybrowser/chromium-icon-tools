@@ -1,3 +1,9 @@
+/**
+ * @author Michael Wasserman
+ * @copyright Michael Wasserman 2018
+ * @license MIT https://github.com/michaelwasserman/vector-icon-app/blob/main/LICENSE
+ */
+
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 function notimplemented(msg) {

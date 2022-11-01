@@ -1,1 +1,1 @@
-`icon2svg` lib is based on [Vector Icon App](https://github.com/michaelwasserman/vector-icon-app) by Michael Wasserman.
+`icon2svg` lib is based on [vector-icons](https://github.com/sadrulhc/vector-icons) Chrome extension by [sadrulhc](https://github.com/sadrulhc) and [Vector Icon App](https://github.com/michaelwasserman/vector-icon-app) by Michael Wasserman.

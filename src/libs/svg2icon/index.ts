@@ -1,3 +1,8 @@
+/**
+ * Copyright 2022 Ray Systems Ltd. All rights reserved.
+ */
+
+// Original license and copyright:
 // Copyright 2021 The Skiafy Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,19 +17,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Skia docs at:
+// Skia vector icon docs at:
 // https://source.chromium.org/chromium/chromium/src/+/main:ui/gfx/vector_icon_types.h;l=6?q=vector_icon_types&sq=&ss=chromium
-// TODO: Implement polyline and polygone shapes. Support DISABLE_AA prop.
 
 import { parse, ElementNode } from 'svg-parser';
 import colorString from 'color-string';
 
 type Svg2IconOptions = {
-  scaleX?: number;
-  scaleY?: number;
-  translateX?: number;
-  translateY?: number;
-  preserveColors?: boolean;
+  discardColors?: boolean;
 };
 type RGBAData = [number, number, number, number];
 type SVGColorData = RGBAData | 'none' | 'currentColor' | undefined;
@@ -34,8 +34,17 @@ type StrokeData = {
   linecap: 'round' | 'square' | undefined;
 };
 
+const SUPPORTED_ATTRIBUTES = {
+  generic: ['fill', 'stroke', 'stroke-width', 'stroke-linecap'],
+  path: ['d'],
+  circle: ['cx', 'cy', 'r'],
+  rect: ['x', 'y', 'width', 'height', 'rx'],
+  ellipse: ['cx', 'cy', 'rx', 'ry'],
+  line: ['x1', 'y1', 'x2', 'y2'],
+};
+
 export function svg2icon(svgString: string, options: Svg2IconOptions = {}) {
-  const { scaleX = 1, scaleY = 1, translateX = 0, translateY = 0, preserveColors = true } = options;
+  const { discardColors = false } = options;
 
   // Generate abstract syntax tree from the svg string.
   const svgRoot = parse(svgString);
@@ -73,7 +82,7 @@ export function svg2icon(svgString: string, options: Svg2IconOptions = {}) {
   output += 'CANVAS_DIMENSIONS, ' + width + ',\n';
 
   // Recurse through the svg node.
-  output += handleNode(svgNode, scaleX, scaleY, translateX, translateY, preserveColors);
+  output += handleNode(svgNode, discardColors);
 
   // Truncate final comma and ensure newline at the end.
   output = `${output.slice(0, -2)}\n`;
@@ -84,6 +93,38 @@ export function svg2icon(svgString: string, options: Svg2IconOptions = {}) {
 //
 // UTILS
 //
+
+function validateAttributes(svgNode: ElementNode) {
+  const { properties } = svgNode;
+  if (!properties) return;
+
+  for (let propName in properties) {
+    // Validate node-specific properties.
+    if (svgNode.tagName && SUPPORTED_ATTRIBUTES.hasOwnProperty(svgNode.tagName)) {
+      const supportedNodeAttributes = [
+        ...SUPPORTED_ATTRIBUTES.generic,
+        ...SUPPORTED_ATTRIBUTES[svgNode.tagName as keyof typeof SUPPORTED_ATTRIBUTES],
+      ];
+      if (!supportedNodeAttributes.includes(propName)) {
+        throw new Error(`Unsupported property in <${svgNode.tagName}> element: ${propName}`);
+      }
+    }
+    // Validate generic properties.
+    else {
+      if (!SUPPORTED_ATTRIBUTES.generic.includes(propName)) {
+        throw new Error(`Unsupported property in <${svgNode.tagName}> element: ${propName}`);
+      }
+    }
+
+    // Make sure the property value is not a percentage value.
+    const propValue = properties[propName];
+    if (propValue && typeof propValue === 'string' && propValue.slice(-1) === '%') {
+      throw new Error(
+        `Percentage values are not supported in <${svgNode.tagName}> ${propName} property`
+      );
+    }
+  }
+}
 
 function toCommand(letter: string) {
   switch (letter) {
@@ -175,7 +216,7 @@ function roundToHundredths(x: number) {
 function parseColorData(
   svgColorString: any,
   inheritedColorData: SVGColorData = undefined,
-  preserveColors = true
+  discardColors = false
 ): SVGColorData {
   if (svgColorString === 'none' || svgColorString === 'currentColor') {
     return svgColorString;
@@ -184,7 +225,7 @@ function parseColorData(
   if (typeof svgColorString === 'string') {
     const color = colorString.get.rgb(svgColorString);
     if (color) {
-      if (preserveColors) {
+      if (!discardColors) {
         return color;
       }
     } else {
@@ -215,7 +256,7 @@ function createColorCommand(colorData: SVGColorData) {
 function parseStrokeData(
   svgElement: ElementNode,
   inheritedStrokeData: StrokeData | undefined = undefined,
-  preserveColors = true
+  discardColors = false
 ): StrokeData | undefined {
   const { properties } = svgElement;
 
@@ -227,7 +268,7 @@ function parseStrokeData(
   // Parse stroke (color).
   //
 
-  const color = parseColorData(properties.stroke, inheritedStrokeData?.color, preserveColors);
+  const color = parseColorData(properties.stroke, inheritedStrokeData?.color, discardColors);
 
   //
   // Parse stroke-width.
@@ -285,7 +326,7 @@ function createStrokeCommand(svgNode: ElementNode, strokeData: StrokeData) {
     // "butt" linecap while Skia defaults to "round".
     if (!strokeData.linecap) {
       throw new Error(
-        'You must specify stroke-linecap to be either "round" or "square" for paths if you use stroke'
+        'You must specify stroke-linecap to be either "round" or "square" for paths and lines if you use stroke'
       );
     }
 
@@ -299,11 +340,7 @@ function createStrokeCommand(svgNode: ElementNode, strokeData: StrokeData) {
 
 function handleNode(
   svgNode: ElementNode,
-  scaleX = 1,
-  scaleY = 1,
-  translateX = 0,
-  translateY = 0,
-  preserveColors = true,
+  discardColors = false,
   inheritedFillColorData: SVGColorData = undefined,
   inheritedStrokeData: StrokeData | undefined = undefined
 ) {
@@ -314,35 +351,23 @@ function handleNode(
       throw new Error('Detected a text string within the SVG, which is not supported.');
     }
 
-    let pathOutput = '';
+    // Make sure the SVG node does not have any unsupported SVG attributes.
+    validateAttributes(svgChildNode);
 
-    const pathFillData = parseColorData(
+    let shapeOutput = '';
+
+    const shapeFillData = parseColorData(
       svgChildNode.properties?.fill,
       inheritedFillColorData,
-      preserveColors
+      discardColors
     );
 
-    const pathStrokeData = parseStrokeData(svgChildNode, inheritedStrokeData, preserveColors);
+    const shapeStrokeData = parseStrokeData(svgChildNode, inheritedStrokeData, discardColors);
 
     // Parse path command.
     switch (svgChildNode.tagName) {
       case 'g': {
-        if (svgChildNode.properties?.transform) {
-          // TODO: We should be able to handle translates in transforms.
-          throw new Error('<g> with a transform not handled');
-        } else {
-          nodeOutput += handleNode(
-            svgChildNode,
-            scaleX,
-            scaleY,
-            translateX,
-            translateY,
-            preserveColors,
-            pathFillData,
-            pathStrokeData
-          );
-        }
-
+        nodeOutput += handleNode(svgChildNode, discardColors, shapeFillData, shapeStrokeData);
         break;
       }
 
@@ -436,26 +461,6 @@ function handleNode(
               }
             }
 
-            // Whether to apply flipping and translating transforms to the
-            // argument. Only the last two arguments (out of 7) in an arc
-            // command are coordinates.
-            let transformArg = true;
-            // xAxis is true when the current coordinate refers to the xAxis.
-            let xAxis = currentCommand.args.length % 2 == 0;
-            if (svgDirective.toLowerCase() == 'a') {
-              if (currentCommand.args.length < 5) {
-                transformArg = false;
-              }
-              xAxis = currentCommand.args.length % 2 == 1;
-            } else if (svgDirective.toLowerCase() == 'v') {
-              xAxis = false;
-            }
-            if (transformArg) {
-              point *= xAxis ? scaleX : scaleY;
-              if (svgDirective != svgDirective.toLowerCase()) {
-                point += xAxis ? translateX : translateY;
-              }
-            }
             point = roundToHundredths(point);
             currentCommand.args.push(point);
 
@@ -483,86 +488,65 @@ function handleNode(
 
         // Write the path commands to the output.
         commands.forEach((command) => {
-          pathOutput += `${toCommand(command.command)}`;
-          command.args.forEach((arg) => (pathOutput += `, ${num2str(arg)}`));
-          pathOutput += ',\n';
+          shapeOutput += `${toCommand(command.command)}`;
+          command.args.forEach((arg) => (shapeOutput += `, ${num2str(arg)}`));
+          shapeOutput += ',\n';
         });
 
         break;
       }
 
       case 'circle': {
-        let cx = toFloat(svgChildNode.properties?.cx);
-        cx *= scaleX;
-        cx += translateX;
+        let { cx, cy, r } = svgChildNode.properties || {};
 
-        let cy = toFloat(svgChildNode.properties?.cy);
-        cy *= scaleY;
-        cy += translateY;
-
-        const rad = toFloat(svgChildNode.properties?.r);
-
-        pathOutput += `CIRCLE, ${num2str(cx)}, ${num2str(cy)}, ${num2str(rad)},\n`;
+        shapeOutput += `CIRCLE`;
+        shapeOutput += `, ${num2str(toFloat(cx))}`;
+        shapeOutput += `, ${num2str(toFloat(cy))}`;
+        shapeOutput += `, ${num2str(toFloat(r))}`;
+        shapeOutput += `,\n`;
 
         break;
       }
 
       case 'rect': {
-        let x = toFloat(svgChildNode.properties?.x);
-        x *= scaleX;
-        x += translateX;
+        let { x, y, width, height, rx } = svgChildNode.properties || {};
 
-        let y = toFloat(svgChildNode.properties?.y);
-        y *= scaleY;
-        y += translateY;
-
-        const width = toFloat(svgChildNode.properties?.width);
-        const height = toFloat(svgChildNode.properties?.width);
-        const rx = toFloat(svgChildNode.properties?.rx);
-
-        pathOutput += `ROUND_RECT, ${num2str(x)}, ${num2str(y)}, ${num2str(width)}, ${num2str(
-          height
-        )}, ${num2str(rx)},\n`;
+        shapeOutput += `ROUND_RECT`;
+        shapeOutput += `, ${num2str(toFloat(x))}`;
+        shapeOutput += `, ${num2str(toFloat(y))}`;
+        shapeOutput += `, ${num2str(toFloat(width))}`;
+        shapeOutput += `, ${num2str(toFloat(height))}`;
+        shapeOutput += `, ${num2str(toFloat(rx))}`;
+        shapeOutput += `,\n`;
 
         break;
       }
 
       case 'ellipse': {
-        let cx = toFloat(svgChildNode.properties?.cx);
-        cx *= scaleX;
-        cx += translateX;
+        let { cx, cy, rx, ry } = svgChildNode.properties || {};
 
-        let cy = toFloat(svgChildNode.properties?.cy);
-        cy *= scaleY;
-        cy += translateY;
-
-        const rx = toFloat(svgChildNode.properties?.rx);
-        const ry = toFloat(svgChildNode.properties?.ry);
-
-        pathOutput += `OVAL, ${num2str(cx)}, ${num2str(cy)}, ${num2str(rx)}, ${num2str(ry)},\n`;
+        shapeOutput += `OVAL`;
+        shapeOutput += `, ${num2str(toFloat(cx))}`;
+        shapeOutput += `, ${num2str(toFloat(cy))}`;
+        shapeOutput += `, ${num2str(toFloat(rx))}`;
+        shapeOutput += `, ${num2str(toFloat(ry))}`;
+        shapeOutput += `,\n`;
 
         break;
       }
 
       case 'line': {
-        let x1 = toFloat(svgChildNode.properties?.x1);
-        x1 *= scaleX;
-        x1 += translateX;
+        let { x1, y1, x2, y2 } = svgChildNode.properties || {};
 
-        let y1 = toFloat(svgChildNode.properties?.y1);
-        y1 *= scaleY;
-        y1 += translateY;
+        shapeOutput += `MOVE_TO`;
+        shapeOutput += `, ${num2str(toFloat(x1))}`;
+        shapeOutput += `, ${num2str(toFloat(y1))}`;
+        shapeOutput += `,\n`;
 
-        let x2 = toFloat(svgChildNode.properties?.x2);
-        x2 *= scaleX;
-        x2 += translateX;
-
-        let y2 = toFloat(svgChildNode.properties?.y2);
-        y2 *= scaleY;
-        y2 += translateY;
-
-        pathOutput += `MOVE_TO, ${num2str(x1)}, ${num2str(y1)},\n`;
-        pathOutput += `LINE_TO, ${num2str(x2)}, ${num2str(y2)},\n`;
+        shapeOutput += `LINE_TO`;
+        shapeOutput += `, ${num2str(toFloat(x2))}`;
+        shapeOutput += `, ${num2str(toFloat(y2))}`;
+        shapeOutput += `,\n`;
 
         break;
       }
@@ -572,25 +556,25 @@ function handleNode(
       }
     }
 
-    // Build path's fill and stroke commands.
-    if (pathOutput) {
-      // First add fill command if fill is not "none" and tag is not line.
-      if (pathFillData !== 'none' && svgChildNode.tagName !== 'line') {
+    // Generate shape's fill and stroke commands.
+    if (shapeOutput) {
+      // First draw filled shape if applicable.
+      if (shapeFillData !== 'none' && svgChildNode.tagName !== 'line') {
         nodeOutput += 'NEW_PATH,\n';
-        nodeOutput += createColorCommand(pathFillData);
-        nodeOutput += pathOutput;
+        nodeOutput += createColorCommand(shapeFillData);
+        nodeOutput += shapeOutput;
       }
 
-      // Next add stroke command if stroke is defined.
+      // Next draw stroked shape if applicable.
       if (
-        pathStrokeData &&
-        pathStrokeData.color &&
-        pathStrokeData.color !== 'none' &&
-        pathStrokeData.width !== 0
+        shapeStrokeData &&
+        shapeStrokeData.color &&
+        shapeStrokeData.color !== 'none' &&
+        shapeStrokeData.width !== 0
       ) {
         nodeOutput += 'NEW_PATH,\n';
-        nodeOutput += createStrokeCommand(svgChildNode, pathStrokeData);
-        nodeOutput += pathOutput;
+        nodeOutput += createStrokeCommand(svgChildNode, shapeStrokeData);
+        nodeOutput += shapeOutput;
       }
     }
   });

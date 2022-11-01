@@ -1,139 +1,156 @@
 # Chromium Icon Tools
 
-Node.js based chromium devtools for converting SVG files to Skia Vector Icon files and vice versa.
+Node.js based Chromium devtools for converting SVG files to Skia Vector Icon files and vice versa.
 
-## Installation
+**Important note:** Transforming `.icon` files to `.svg` files is WIP and only working in browsers at the moment. Node.js and CLI support might be added at some point if necessary.
 
-Install globally to use `svg2icon` CLI command in your terminal.
+## svg2icon
 
-```sh
-$ [sudo] npm install -g raybrowser/chromium-icon-tools
-$ svg2icon -i file.svg -o file.icon
-```
+`svg2icon` is a utility function that transforms `.svg` file data into `.icon` file data. Note that only a handful of SVG elements/attributes are supported and the function will (try it's best to) throw an error if the transformed SVG contains unsupported elements/attributes. The library follows SVG spec as accurately as possible so that all valid `.svg` inputs would produce visually identical `.icon` outputs.
 
-Install locally to import and use `svg2icon` and `icon2svg` functions within your code:
+### Install
 
 ```sh
 $ npm install raybrowser/chromium-icon-tools
 ```
-```js
-import { svg2icon, icon2svg } from 'chromium-icon-tools';
+
+### Usage
+
+```ts
+import { svg2icon } from 'chromium-icon-tools';
+
+const svgString = `
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <circle cx="50" cy="50" r="50" fill="green" />
+</svg>
+`;
+
+const iconString = svg2icon(svgString);
+// CANVAS_DIMENSIONS, 100,
+// NEW_PATH,
+// PATH_COLOR_ARGB, 0xFF, 0x00, 0x80, 0x00,
+// CIRCLE, 50, 50, 50
+
+// You can also make the transform discard the SVG file's fill/stroke color
+// info.
+const iconString = svg2icon(svgString, { discardColors: true });
+// CANVAS_DIMENSIONS, 100,
+// NEW_PATH,
+// CIRCLE, 50, 50, 50
 ```
 
-## svg2icon CLI Usage
+### Caveats
 
+- Only supports a handful of SVG elements and attributes.
+  - Elements: `<svg>`, `<g>`, `<path>`, `<circle>`, `<rect>`, `<ellipse>`, `<line>`.
+  - Generic attributes: `fill`, `stroke`, `stroke-width`, `stroke-linecap`.
+  - `<path>` attributes: `d`.
+  - `<circle>` attributes: `cx`, `cy`, `r`.
+  - `<rect>` attributes: `x`, `y`, `width`, `height`, `rx`.
+  - `<ellipse>` attributes: `cx`, `cy`, `rx`, `ry`.
+  - `<line>` attributes: `x1`, `y1`, `x2`, `y2`.
+- Percentage based attribute values are not supported.
+- Chromium's vector icons implementation does not support "butt" styled stroke linecap which is SVGs default linecap type. To work around this issue you must specify stroke-linecap to be either "round" or "square" for `<path>`s and `<line>`s if you define stroke.
+- Always outputs `CANVAS_SIZE` even if it could be omitted (at size 48). This is a design choice, not a bug.
+- Always outputs `NEW_PATH` at the start of a new path/shape although it _could_ be omitted for the first path. This is a design choice, not a bug.
+
+### Tips and tricks
+
+- You _can_ use `fill`, `stroke`, `stroke-width` and `stroke-linecap` attributes in `<g>` elements and their values should propagate down to the descendants just like in SVGs.
+- If an element's `fill` value is `"none"` it's fill command will be omitted from the output.
+- If an element's `stroke-width` is `0` it's stroke command will be omitted from the output.
+- Use `"currentColor"` value for `fill` and/or `stroke` attributes if you want to output fill and stroke commands without color information.
+
+## svg2icon CLI
+
+`svg2icon` utility is also available as a CLI tool.
+
+### Install
+
+```sh
+$ [sudo] npm install -g raybrowser/chromium-icon-tools
 ```
-Usage:
-  svg2icon [OPTIONS] [ARGS]
 
-Options:
-* -h, --help: Help
-* -v, --version : Version
-* -i INPUT, --input=INPUT : Input file or folder, "-" for STDIN (for folder, convert all *.svg files to *.icon files)
-* -o OUTPUT, --output=OUTPUT : Output file or folder, "-" for STDOUT
-* -q, --quiet: Only show error messages
-* -c : Output color (default: no)
+### Usage
 
-Arguments:
-* INPUT : Alias to --input
+```sh
+$ svg2icon [OPTIONS] [ARGS]
 ```
 
-- With files:
+### Options
+
+- `-h`, `--help`: Print help.
+- `-v`, `--version`: Print version.
+- `-i INPUT`, `--input=INPUT`: Input file or folder, "-" for STDIN (for folder, convert all _.svg files to _.icon files).
+- `-o OUTPUT`, `--output=OUTPUT`: Output file or folder, "-" for STDOUT.
+- `-q`, `--quiet`: Only show error messages.
+- `-d`, `--discard-colors`: Discard SVG fill and stroke colors (default: no).
+
+### Arguments
+
+- INPUT : Alias to --input
+
+### Examples
+
+- **With files:**
+
+  Convert `a.svg` to `a.icon` and `b.svg` to `b.icon`.
 
   ```sh
   $ svg2icon a.svg b.svg
   ```
 
-  Output a.icon, b.icon
+  Convert `foo.svg` to `bar.icon`.
 
   ```sh
-  $ svg2icon -i a.svg -o test.icon -i b.svg -o /tmp/b.icon some.svg thing.svg
+  $ svg2icon -i foo.svg -o bar.icon
   ```
 
-  Output test.icon, /tmp/b.icon, some.icon and thing.icon
+  Convert all `.svg` files to `.icon` files and output the icon files to folder `/tmp/myfolder`.
 
   ```sh
   $ svg2icon -o /tmp/myfolder *.svg
   ```
 
-  Convert all svg files, output icon files to folder /tmp/myfolder
+- **With folders:**
 
-- With folders:
+  Convert all `.svg` files in `/tmp/myfolder` folder.
 
   ```sh
   $ svg2icon /tmp/myfolder
-  ```
-
-  or
-
-  ```sh
+  # OR
   $ svg2icon -i /tmp/myfolder
   ```
 
-  Convert all svg files in /tmp/myfolder
+  Convert all `.svg` files in `/tmp/myfolder` folder and output the icon files to `/path/to/yourfolder` folder.
 
   ```sh
   $ svg2icon -i /tmp/myfolder -o /path/to/yourfolder
   ```
 
-  Convert all svg file in /tmp/myfolder and output icon files to /path/to/yourfolder
+- **With STDIN / STDOUT:**
 
-  ```sh
-  $ svg2icon -i a.svg -o test.icon -i b.svg -o /tmp/b.icon some.svg thing.svg
-  ```
-
-  Output test.icon, /tmp/b.icon, some.icon and thing.icon
-
-- With STDIN / STDOUT
+  Read svg from pipe and output to /tmp/a.icon.
 
   ```sh
   $ cat a.svg | svg2icon >/tmp/a.icon
-  ```
-
-  ```sh
+  # OR
   $ svg2icon -o /tmp/a.icon < a.svg
   ```
 
-  Read svg from pipe and output to /tmp/a.icon
+  Read from stdin and output to /tmp/a.icon.
 
   ```sh
   $ svg2icon -o /tmp/a.icon -
-  ```
-
-  ```sh
+  # OR
   $ svg2icon -i - -o /tmp/a.icon
   ```
 
-  Read from stdin and output to /tmp/a.icon
+## Credits
 
-- With all of above
-
-  ```sh
-  $ svg2icon -i a.svg -o aa.icon \
-   -i - -o /tmp/stdin.icon \
-   -i /tmp/myfolder -o /tmp/yourfolder \
-   -o /tmp/outputfoder some.svg /tmp/test.svg
-  ```
-
-  ```
-  Converts:
-    convert a.svg to aa.icon;
-    read from stdin and output to /tmp/stdin.icon;
-    convert all svg files in /tmp/myfolder and output icon files to /tmp/yourfolder;
-    convert some.svg, /tmp/test.svg, output some.icon and test.icon to /tmp/outputfolder;
-  ```
-
-- Output path color
-
-  ```sh
-  $ svg2icon -c -o - a.svg
-  NEW_PATH,
-  PATH_COLOR_ARGB, 0xFF, 0xFF, 0xAA, 0x00,
-  CIRCLE, 11.5, 11.5, 1.5
-  ```
-
-## Built on top of these tools
+This library is built on top of the following awesome libraries/tools:
 
 - https://github.com/evanstade/skiafy
 - https://github.com/zhsoft88/skiafy
 - https://github.com/michaelwasserman/vector-icon-app
+- https://github.com/sadrulhc/vector-icons

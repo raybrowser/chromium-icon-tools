@@ -1,3 +1,14 @@
+/**
+ * Copyright 2022 Ray Systems Ltd. All rights reserved.
+ */
+
+/**
+ * Original license and copyright:
+ * @author zhsoft88 <zhsoft88@icloud.com> (https://github.com/zhsoft88)
+ * @copyright © 2019 zhuatang.com
+ * @license MIT
+ */
+
 import FS from 'fs';
 import PATH from 'path';
 import { svg2icon } from '../libs/svg2icon';
@@ -10,7 +21,7 @@ interface ParsedArgs {
   trailings: { type: string; value: string }[];
   outputs: { type: string; value: string; cmdline: string }[];
   quiet: boolean;
-  preserveColors: boolean;
+  discardColors: boolean;
   stdInData: string;
 }
 
@@ -42,7 +53,7 @@ function parseArgs() {
     trailings: [],
     outputs: [],
     quiet: false,
-    preserveColors: false,
+    discardColors: false,
     stdInData: '',
   };
   const inputPrefix = '--input';
@@ -81,8 +92,8 @@ function parseArgs() {
       result.outputs.push({ type: isDir(path) ? 'd' : 'f', value: path, cmdline: `-o ${path}` });
     } else if (arg == '-q' || arg == '--quiet') {
       result.quiet = true;
-    } else if (arg == '-c') {
-      result.preserveColors = true;
+    } else if (arg == '-d' || arg == '--discard-colors') {
+      result.discardColors = true;
     } else {
       // take all trailing arguments
       for (; i < process.argv.length; i++) {
@@ -112,7 +123,7 @@ function usage() {
       -i INPUT, --input=INPUT : Input file or folder, "-" for STDIN (for folder, convert all *.svg files to *.icon files)
       -o OUTPUT, --output=OUTPUT : Output file or folder, "-" for STDOUT
       -q, --quiet: Only show error messages
-      -c : Output color (default: no)
+      -d, --discard-colors : Discard fill and stroke colors (default: no)
 
     Arguments:
     INPUT : Alias to --input
@@ -167,7 +178,7 @@ function mkdirP(parentDir: string, childDir: string) {
 }
 
 function svg2IconWrite(args: ParsedArgs, source: string, target: string, data: string) {
-  const iconData = svg2icon(data, { preserveColors: !!args.preserveColors });
+  const iconData = svg2icon(data, { discardColors: args.discardColors });
   if (target == '-') {
     console.log(iconData);
     return;
